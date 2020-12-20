@@ -1,0 +1,106 @@
+version: "3"
+
+services:
+  watchtower:
+    container_name: watchtower
+    image: containrrr/watchtower:${WATCHTOWER_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - services_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /root/.docker/config.json:/config.json:ro
+    environment:
+      TZ: $(cat /etc/timezone)
+      WATCHTOWER_CLEANUP: 1
+      WATCHTOWER_POLL_INTERVAL: 300
+
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:${PIHOLE_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - services_network
+    ports:
+      - 53:53/tcp
+      - 53:53/udp
+      - 67:67/udp
+      - 80:80/tcp
+      - 443:443/tcp
+    volumes:
+      - pihole:/etc/pihole/
+      - dnsmasq.d:/etc/dnsmasq.d/
+    environment:
+      TZ: $(cat /etc/timezone)
+      WEBPASSWORD: # TODO
+    cap_add:
+      - NET_ADMIN
+
+  db:
+    container_name: db
+    image: mariadb:${MARIADB_TAG:-latest}
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    restart: unless-stopped
+    networks:
+      - services_network
+    volumes:
+      - db:/var/lib/mysql
+    environment:
+      TZ: $(cat /etc/timezone)
+      MYSQL_ROOT_PASSWORD:
+      MYSQL_USER: nextcloud
+      MYSQL_DATABASE: nextcloud
+      MYSQL_PASSWORD:
+
+  redis:
+    container_name: redis
+    image: redis:${REDIS_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - services_network
+
+  app:
+    container_name: app
+    image: nextcloud:${NEXTCLOUD_TAG:-apache}
+    restart: unless-stopped
+    networks:
+      - services_network
+    ports:
+      - 8080:80  
+    volumes:
+      - nextcloud:/var/www/html
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: nextcloud
+      MYSQL_DATABASE: nextcloud
+      MYSQL_PASSWORD:
+      REDIS_HOST: redis
+    depends_on:
+      - db
+      - redis
+
+  cron:
+    container_name: cron
+    image: nextcloud:${NEXTCLOUD_TAG:-apache}
+    restart: unless-stopped
+    volumes:
+      - nextcloud:/var/www/html
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: nextcloud
+      MYSQL_DATABASE: nextcloud
+      MYSQL_PASSWORD:
+      REDIS_HOST: redis
+    depends_on:
+      - db
+      - redis
+    entrypoint: /cron.sh
+
+volumes:
+  pihole:
+  dnsmasq.d:
+  db:
+  nextcloud:
+
+networks:
+  services_network:
